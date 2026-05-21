@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediAssist Triage Agent</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; color: #1f2937; padding: 2rem; display: flex; justify-content: center; }
+        .container { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 600px; }
+        h1 { color: #2563eb; font-size: 1.5rem; margin-top: 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
+        label { display: block; margin-top: 15px; font-weight: bold; font-size: 0.9rem; }
+        input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #d1d5db; border-radius: 5px; box-sizing: border-box; }
+        button { margin-top: 20px; width: 100%; padding: 12px; background-color: #2563eb; color: white; border: none; border-radius: 5px; font-size: 1rem; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #1d4ed8; }
+        #result { margin-top: 20px; padding: 15px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 5px; display: none; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem;}
+        .loading { text-align: center; display: none; margin-top: 15px; font-style: italic; color: #64748b; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>MediAssist AI Triage</h1>
+    
+    <form id="triageForm">
+        <label>Patient Name</label>
+        <input type="text" id="name" value="John Doe" required>
+
+        <label>Age</label>
+        <input type="number" id="age" value="35" required>
+
+        <label>Gender</label>
+        <select id="gender">
+            <option value="M">Male</option>
+            <option value="F">Female</option>
+            <option value="Other">Other</option>
+        </select>
+
+        <label>Symptoms (comma separated)</label>
+        <input type="text" id="symptoms" value="mild headache, runny nose, slight cough" required>
+
+        <label>Medical History Notes</label>
+        <textarea id="history" rows="3">None</textarea>
+
+        <button type="submit">Analyze Symptoms</button>
+    </form>
+
+    <div class="loading" id="loading">Analyzing symptoms with AI...</div>
+    <div id="result"></div>
+</div>
+
+<script>
+    document.getElementById('triageForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const loading = document.getElementById('loading');
+        const resultDiv = document.getElementById('result');
+        
+        loading.style.display = 'block';
+        resultDiv.style.display = 'none';
+
+        // Split symptoms string into an array
+        const symptomsArray = document.getElementById('symptoms').value.split(',').map(s => s.trim());
+
+        const payload = {
+            patient_name: document.getElementById('name').value,
+            age: parseInt(document.getElementById('age').value),
+            gender: document.getElementById('gender').value,
+            symptoms: symptomsArray,
+            medical_history_notes: document.getElementById('history').value
+        };
+
+        try {
+            // NOTE: Ensure this URL matches your active .NET API port!
+            const response = await fetch('/triage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            
+            resultDiv.style.display = 'block';
+            resultDiv.textContent = JSON.stringify(data, null, 2);
+            loading.style.display = 'none';
+        } catch (error) {
+            loading.style.display = 'none';
+            resultDiv.style.display = 'block';
+            resultDiv.textContent = 'Error connecting to API. Is the C# server running on the correct port?';
+        }
+    });
+</script>
+
+</body>
+</html>

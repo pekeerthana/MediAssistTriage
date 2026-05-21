@@ -22,8 +22,13 @@ else
 builder.Services.AddSingleton<DepartmentService>(); // Singleton loads JSON once
 builder.Services.AddScoped<RedFlagService>();
 builder.Services.AddScoped<LlmService>();
+builder.Services.AddCors();
 
 var app = builder.Build();
+
+app.UseCors(policy => policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapPost("/triage", async ([FromBody] TriageRequest request, RedFlagService redFlagEngine, LlmService llmService, DepartmentService deptService, ILogger<Program> logger) =>
 {
