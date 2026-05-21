@@ -7,12 +7,20 @@
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; color: #1f2937; padding: 2rem; display: flex; justify-content: center; }
         .container { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 600px; }
-        h1 { color: #2563eb; font-size: 1.5rem; margin-top: 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
+        h1, h2 { color: #2563eb; margin-top: 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
+        h1 { font-size: 1.5rem; }
+        h2 { font-size: 1.2rem; margin-top: 30px; }
         label { display: block; margin-top: 15px; font-weight: bold; font-size: 0.9rem; }
         input, select, textarea { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #d1d5db; border-radius: 5px; box-sizing: border-box; }
-        button { margin-top: 20px; width: 100%; padding: 12px; background-color: #2563eb; color: white; border: none; border-radius: 5px; font-size: 1rem; cursor: pointer; font-weight: bold; }
-        button:hover { background-color: #1d4ed8; }
-        #result { margin-top: 20px; padding: 15px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 5px; display: none; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem;}
+        button { width: 100%; padding: 12px; border: none; border-radius: 5px; font-size: 1rem; cursor: pointer; font-weight: bold; color: white; margin-top: 10px; }
+        .btn-primary { background-color: #2563eb; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        .btn-secondary { background-color: #4b5563; }
+        .btn-secondary:hover { background-color: #374151; }
+        .btn-danger { background-color: #dc2626; }
+        .btn-danger:hover { background-color: #b91c1c; }
+        .button-group { display: flex; gap: 10px; margin-top: 20px; }
+        #result { margin-top: 20px; padding: 15px; background: #1e293b; color: #a5b4fc; border-radius: 5px; display: none; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; overflow-x: auto; }
         .loading { text-align: center; display: none; margin-top: 15px; font-style: italic; color: #64748b; }
     </style>
 </head>
@@ -39,53 +47,94 @@
         <input type="text" id="symptoms" value="mild headache, runny nose, slight cough" required>
 
         <label>Medical History Notes</label>
-        <textarea id="history" rows="3">None</textarea>
+        <textarea id="history" rows="2">None</textarea>
 
-        <button type="submit">Analyze Symptoms</button>
+        <button type="submit" class="btn-primary">Analyze Symptoms</button>
     </form>
 
-    <div class="loading" id="loading">Analyzing symptoms with AI...</div>
+    <h2>Manage Existing Patient</h2>
+    <label>Patient ID</label>
+    <input type="text" id="lookupId" placeholder="Paste patient_id here...">
+    
+    <div class="button-group">
+        <button type="button" id="btnGetReport" class="btn-secondary">Get Report (GET)</button>
+        <button type="button" id="btnEscalate" class="btn-danger">Escalate (POST)</button>
+    </div>
+
+    <div class="loading" id="loading">Processing request...</div>
     <div id="result"></div>
 </div>
 
 <script>
-    document.getElementById('triageForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const loading = document.getElementById('loading');
-        const resultDiv = document.getElementById('result');
-        
+    const loading = document.getElementById('loading');
+    const resultDiv = document.getElementById('result');
+
+    function showLoading() {
         loading.style.display = 'block';
         resultDiv.style.display = 'none';
+    }
 
-        // Split symptoms string into an array
-        const symptomsArray = document.getElementById('symptoms').value.split(',').map(s => s.trim());
+    function displayResult(data) {
+        resultDiv.style.display = 'block';
+        resultDiv.textContent = JSON.stringify(data, null, 2);
+        loading.style.display = 'none';
+        
+        // Auto-fill the Patient ID box if a new triage was just created
+        if (data.patient_id) {
+            document.getElementById('lookupId').value = data.patient_id;
+        }
+    }
+
+    // 1. Submit New Triage (POST /triage)
+    document.getElementById('triageForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        showLoading();
 
         const payload = {
             patient_name: document.getElementById('name').value,
             age: parseInt(document.getElementById('age').value),
             gender: document.getElementById('gender').value,
-            symptoms: symptomsArray,
+            symptoms: document.getElementById('symptoms').value.split(',').map(s => s.trim()),
             medical_history_notes: document.getElementById('history').value
         };
 
         try {
-            // NOTE: Ensure this URL matches your active .NET API port!
             const response = await fetch('/triage', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-
-            const data = await response.json();
-            
-            resultDiv.style.display = 'block';
-            resultDiv.textContent = JSON.stringify(data, null, 2);
-            loading.style.display = 'none';
+            displayResult(await response.json());
         } catch (error) {
-            loading.style.display = 'none';
-            resultDiv.style.display = 'block';
-            resultDiv.textContent = 'Error connecting to API. Is the C# server running on the correct port?';
+            displayResult({ error: "API connection failed." });
+        }
+    });
+
+    // 2. Retrieve Report (GET /report/{id})
+    document.getElementById('btnGetReport').addEventListener('click', async () => {
+        const id = document.getElementById('lookupId').value.trim();
+        if (!id) return alert("Please enter a Patient ID first.");
+        
+        showLoading();
+        try {
+            const response = await fetch(`/report/${id}`);
+            displayResult(await response.json());
+        } catch (error) {
+            displayResult({ error: "Failed to fetch report." });
+        }
+    });
+
+    // 3. Escalate Patient (POST /escalate/{id})
+    document.getElementById('btnEscalate').addEventListener('click', async () => {
+        const id = document.getElementById('lookupId').value.trim();
+        if (!id) return alert("Please enter a Patient ID first.");
+        
+        showLoading();
+        try {
+            const response = await fetch(`/escalate/${id}`, { method: 'POST' });
+            displayResult(await response.json());
+        } catch (error) {
+            displayResult({ error: "Failed to escalate patient." });
         }
     });
 </script>

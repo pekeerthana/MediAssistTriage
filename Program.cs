@@ -1,42 +1,45 @@
+using Microsoft.SemanticKernel.Connectors.Google;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.SemanticKernel;
+using System.Collections.Concurrent;
 using MediAssistTriage.Models;
 using MediAssistTriage.Services;
-using Microsoft.SemanticKernel.Connectors.Google;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Ensure GEMINI_API_KEY is set in your environment variables
+// Enable CORS for the frontend
+builder.Services.AddCors();
+
+// Configure Semantic Kernel with Google Gemini
 var apiKey = builder.Configuration["GEMINI_API_KEY"];
 if (string.IsNullOrEmpty(apiKey))
 {
-    Console.WriteLine("WARNING: GEMINI_API_KEY is not set.");
+    Console.WriteLine("WARNING: GEMINI_API_KEY is not set in appsettings.Development.json or environment variables.");
 }
 else
 {
-    // Use gemini-1.5-flash for blazing fast responses (well under 2 seconds)
     builder.Services.AddKernel().AddGoogleAIGeminiChatCompletion("gemini-2.5-flash", apiKey);
 }
 
-// Register internal services
-builder.Services.AddSingleton<DepartmentService>(); // Singleton loads JSON once
+// Register internal services and in-memory database
+builder.Services.AddSingleton<DepartmentService>(); 
 builder.Services.AddScoped<RedFlagService>();
 builder.Services.AddScoped<LlmService>();
-builder.Services.AddCors();
+builder.Services.AddSingleton<ConcurrentDictionary<string, TriageReport>>(); 
 
 var app = builder.Build();
 
+// Middleware
 app.UseCors(policy => policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
-app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseDefaultFiles(); // Serves index.html automatically
+app.UseStaticFiles();  // Serves from wwwroot folder
 
-app.MapPost("/triage", async ([FromBody] TriageRequest request, RedFlagService redFlagEngine, LlmService llmService, DepartmentService deptService, ILogger<Program> logger) =>
+// FR-7: POST /triage - Main Assessment Endpoint
+app.MapPost("/triage", async ([FromBody] TriageRequest request, RedFlagService redFlagEngine, LlmService llmService, DepartmentService deptService, ILogger<Program> logger, ConcurrentDictionary<string, TriageReport> reportStore) =>
 {
-    // NFR-4: Audit Logging (HIPAA-conscious: Log ID, not Name)
     var patientId = Guid.NewGuid().ToString(); 
     logger.LogInformation("Triage request received. PatientID: {PatientId}, Timestamp: {Time}", patientId, DateTime.UtcNow);
 
-    // 1. Red-Flag Detection (FR-3)
     var (overrideLevel, flags) = redFlagEngine.CheckForRedFlags(request);
     
     string finalTriageLevel;
@@ -51,17 +54,14 @@ app.MapPost("/triage", async ([FromBody] TriageRequest request, RedFlagService r
     }
     else
     {
-        // 2. LLM Triage Assessment (FR-2)
         var llmResult = await llmService.AssessSymptomsAsync(request);
         finalTriageLevel = llmResult.triage_level;
         confidence = llmResult.confidence_score;
         reasoning = llmResult.reasoning;
     }
 
-    // 3. Department Matching (FR-4 & FR-6)
     var (matchedDeptId, capacityFlag) = deptService.MatchDepartment(finalTriageLevel);
 
-    // 4. Generate Report (FR-5)
     var report = new TriageReport(
         PatientId: patientId,
         TriageLevel: finalTriageLevel,
@@ -73,7 +73,41 @@ app.MapPost("/triage", async ([FromBody] TriageRequest request, RedFlagService r
         CapacityFlag: capacityFlag
     );
 
+    reportStore[patientId] = report;
     return Results.Ok(report);
+});
+
+// FR-7: GET /report/{patient_id} - Retrieve Report Endpoint
+app.MapGet("/report/{patient_id}", (string patient_id, ConcurrentDictionary<string, TriageReport> reportStore) => 
+{
+    if (reportStore.TryGetValue(patient_id, out var report)) 
+    {
+        return Results.Ok(report);
+    }
+    return Results.NotFound(new { error = "Report not found." });
+});
+
+// FR-7: POST /escalate/{patient_id} - Manual Escalation Endpoint
+app.MapPost("/escalate/{patient_id}", (string patient_id, ConcurrentDictionary<string, TriageReport> reportStore, DepartmentService deptService) => 
+{
+    if (!reportStore.TryGetValue(patient_id, out var existingReport)) 
+    {
+        return Results.NotFound(new { error = "Report not found." });
+    }
+
+    var (newDept, capFlag) = deptService.MatchDepartment("EMERGENCY");
+
+    var escalatedReport = existingReport with 
+    {
+        TriageLevel = "EMERGENCY",
+        MatchedDepartment = newDept,
+        CapacityFlag = capFlag,
+        EstimatedWaitMinutes = capFlag ? 120 : 0, 
+        RecommendedAction = "MANUAL OVERRIDE: Patient escalated to EMERGENCY by staff."
+    };
+
+    reportStore[patient_id] = escalatedReport;
+    return Results.Ok(escalatedReport);
 });
 
 app.Run();

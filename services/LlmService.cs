@@ -34,14 +34,12 @@ public class LlmService(Kernel kernel)
             var result = await kernel.InvokePromptAsync(prompt);
             var json = result.ToString();
             
-            // Clean up markdown block formatting if the LLM includes it
             if (json.StartsWith("```json")) json = json.Replace("```json", "").Replace("```", "");
             
             return JsonSerializer.Deserialize<LlmResult>(json.Trim()) ?? new LlmResult();
         }
         catch (Exception ex)
         {
-            // Fallback for LLM failure
             Console.WriteLine($"LLM Error: {ex.Message}");
             return new LlmResult { triage_level = "STANDARD", confidence_score = 0.0, reasoning = "LLM Evaluation Failed. Defaulting to STANDARD." };
         }
