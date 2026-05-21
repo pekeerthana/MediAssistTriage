@@ -1,0 +1,18 @@
+# Secrets
+.env
+appsettings.Development.json
+
+# Build results
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Mac/Linux environment files
+.DS_Store
+*.swp
